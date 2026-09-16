@@ -16,7 +16,7 @@ vi.mock('../src/main/mcp/call-context.js', async (importOriginal) => ({
   ...await importOriginal<object>(), currentCall: () => ({ caller: { ...hooks.caller }, startedAt: hooks.startedAt })
 }));
 const { defaultConfig, initConfigPath, saveConfig } = await import('../src/main/config.js');
-const { initSessionStore, createSession, getSession, rebindSession, appendEvent, readRecentEvents, flushSessions, resetSessionStoreForTests, observeSessionModel } = await import('../src/main/session/store.js');
+const { initSessionStore, createSession, getSession, rebindSession, appendEvent, readRecentEvents, flushSessions, resetSessionStoreForTests, observeSessionModel, updateSessionPlan } = await import('../src/main/session/store.js');
 const { resetRecorderForTests } = await import('../src/main/session/recorder.js');
 const { announceSessionFinish: announceTransport, sessionFinishDeadline, settleSessionFinishForTests, requestSessionFinishGoal, sessionFinishWaiting, setFinishNotifier, releaseSessionFinish, sessionFinishHeld, getSessionFinishDraft } = await import('../src/main/session/finish.js');
 const { setGoalSwitchNow, automaticFinishEnabled, snapshotGoalSwitches, restoreGoalSwitches, registerGoalDecisionChat } = await import('../src/main/goal.js');
@@ -119,6 +119,20 @@ describe('session finish turn identity', () => {
     expect(hooks.followup).toHaveBeenCalledTimes(1);
     expect(hooks.enqueue).not.toHaveBeenCalled();
     expect(getSessionFinishDraft(sessionId, 'turn-one')).toBeNull();
+  });
+
+  it('keeps the finish hold until the active Agent Plan is reconciled', async () => {
+    await updateSessionPlan(sessionId, hooks.caller.conversationId, {
+      plan: [
+        { step: 'Implement the fix', status: 'completed' },
+        { step: 'Verify the regression', status: 'in_progress' }
+      ]
+    }, hooks.startedAt);
+    const result = await announceSessionFinish(sessionId, 'Ready to finish');
+    expect(result).toContain('HELD: The active Agent Plan still has unfinished steps');
+    expect(result).toContain('Verify the regression');
+    expect(hooks.followup).not.toHaveBeenCalled();
+    expect(hooks.enqueue).not.toHaveBeenCalled();
   });
   it('spends only the remaining ingress budget after late identity resolution', async () => {
     hooks.hasInput = false;

@@ -6,6 +6,8 @@ import { getSessionProject, projectWorkspace } from '../projects.js';
 import { resolvePath } from '../sandbox.js';
 import { MAX_CHATGPT_MESSAGE_CHARS, prependUserPrompt } from '../../shared/user-prompt.js';
 import { selectedSkillInstructions, type SelectedSkill } from './skill-prompt.js';
+import { agentPlanNeedsReconciliation, agentPlanReconciliationInstructions } from '../../shared/agent-plan.js';
+import { readSessionPlan } from './store.js';
 
 type PromptScope = { sessionId?: string | null; projectId?: string | null };
 export type PromptLimits = { maxChars: number; maxBytes: number };
@@ -114,7 +116,26 @@ export async function prepareSessionPrompt(text: string, scope: PromptScope = {}
 }
 
 /** Explicit follow-up selection adds Skills only, never repeats opening setup. */
-export async function prepareSkillFollowup(text: string, authored: string, budget = limits): Promise<string> {
-  const skills = await selectedSkillInstructions(authored);
-  return skills.length ? fitSessionPrompt(text, '', null, budget, skills) : text;
+export async function prepareSkillFollowup(
+  text: string,
+  authored: string,
+  budget = limits,
+  sessionId?: string | null
+): Promise<string> {
+  const [skills, plan] = await Promise.all([
+    selectedSkillInstructions(authored),
+    sessionId ? readSessionPlan(sessionId).catch(() => null) : Promise.resolve(null)
+  ]);
+  const planContext = agentPlanNeedsReconciliation(plan)
+    ? `# Agent Plan reconciliation\n\n${agentPlanReconciliationInstructions(plan)}`
+    : '';
+  if (!skills.length && !planContext) return text;
+  if (!planContext) return fitSessionPrompt(text, '', null, budget, skills);
+  try {
+    return fitSessionPrompt(text, planContext, null, budget, skills);
+  } catch (error) {
+    // Selected Skills are explicit user intent and remain mandatory. The plan also arrives on
+    // the first owned Core tool result, so a near-limit authored message may omit only this copy.
+    return skills.length ? fitSessionPrompt(text, '', null, budget, skills) : text;
+  }
 }

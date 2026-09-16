@@ -122,7 +122,7 @@ function coreInstructions(ctx: ToolContext, platform: NodeJS.Platform): string {
     '# Task plan',
     'Use update_plan for tasks with several meaningful steps; skip it for simple tasks. Give each step a short user-facing headline and concrete details about the approach, constraints or checks. Send the complete plan on every update, preserving useful details. Keep at most one step in_progress.',
     'Update the plan when a step is completed or the approach changes. Mark steps completed only when their work is done. Do not repeat the full plan in chat: the app shows the headlines with expandable details above queued messages.',
-    'The plan does not execute steps or mark queued instructions done. New user instructions extend the work; update the plan accordingly.'
+    'The plan does not execute steps or mark queued instructions done. New user instructions extend the work; update the plan accordingly. If the app reports that an earlier plan needs reconciliation, explicitly update it before continuing related work, or clear it if the old work was actually finished or superseded.',
   );
   if (agentTools) lines.push(
     '',

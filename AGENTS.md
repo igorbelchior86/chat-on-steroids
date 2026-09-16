@@ -954,8 +954,18 @@ composition retain their ordinary editing behavior.
   caller's local session. Short headlines, bounded details and statuses appear above the queue;
   at most one step is in progress. Older calls/retired frontends cannot overwrite newer state.
   Completion animates then dismisses the card; completed reloads stay hidden while the document
-  and history remain. Prepared handoffs include an exact-session notice to inspect the saved
-  plan. This card neither delivers instructions nor completes/deletes queued checkpoints.
+  and history remain. A proven completed turn pauses an unfinished displayed plan without
+  pretending its remaining steps completed, so stale counts are not presented as live progress.
+  An app-authored repair of that exact false completion reactivates it. A normal later user turn
+  leaves it paused until a newer `update_plan` explicitly reconciles/replaces it; app-authored
+  follow-ups and the first owned Core tool result carry a bounded reconciliation reminder so the
+  model must either update continuing work or explicitly clear work that finished/was superseded.
+  The first accepted reconciliation consumes that reminder even when browser turn identity arrives
+  late. Repeating semantically identical `update_plan` input is idempotent: it creates no new plan
+  revision and cannot re-arm reconciliation by changing only `updatedAt`.
+  Prepared handoffs carry the same unresolved-plan notice. This card neither delivers instructions
+  nor completes/deletes queued checkpoints. Astra's finish boundary remains held while a plan has
+  unfinished steps so the executor must reconcile the displayed state before finishing.
 
 Finish checkpoints use `shared/input.ts::browserInputModel()` to inherit current selection,
 including legacy rows containing an old model. A receipt for an inherited checkpoint must not

@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { getConfig } from '../config.js';
 import { currentCall } from '../mcp/call-context.js';
-import { getSession } from './store.js';
+import { getSession, readSessionPlan } from './store.js';
+import { incompleteAgentPlanSteps } from '../../shared/agent-plan.js';
 import { onSessionChange, recordProgress } from './recorder.js';
 import { isChatBlocked } from './blocked-chats.js';
 import { draftFastFollowup, conversationMessages, automaticFinishEnabled, onGoalChange } from '../goal.js';
@@ -252,6 +253,12 @@ export async function announceSessionFinish(sessionId: string, summary: string, 
   const key = `${sessionId}:${session.activeTurnId}`;
   finishCalls.set(key, (finishCalls.get(key) ?? 0) + 1);
   try {
+    const incompletePlan = incompleteAgentPlanSteps(await readSessionPlan(sessionId));
+    if (incompletePlan.length) {
+      const remaining = incompletePlan.slice(0, 4).map(step => step.step).join('; ');
+      const omitted = incompletePlan.length > 4 ? `; +${incompletePlan.length - 4} more` : '';
+      return `HELD: The active Agent Plan still has unfinished steps. Reconcile it with update_plan before finishing this turn; do not mark steps completed unless the work is actually complete. Remaining: ${remaining}${omitted}`;
+    }
     const queued = (await listInputs()).some(entry => entry.sessionId === sessionId && ['queued', 'browser', 'tool'].includes(entry.state));
     const automatic = automaticFinishEnabled(session.conversationId);
     let notice = 'Queued user instructions are ready.';

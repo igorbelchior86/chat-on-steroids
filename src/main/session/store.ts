@@ -41,7 +41,7 @@ import type {
 import { CONTINUATION_MARKER, eventTokens, MAX_TOOL_RESULT_TOKENS, normalizedToolOutcome, storedTextTokens, workSequence } from '../../shared/session.js';
 import { chronological, positionOf } from '../../shared/chronology.js';
 import { automaticTitle, firstTitleMessage, legacyContextTitle, refreshUserTitle } from './title.js';
-import { agentPlanSchema, agentPlanUpdateSchema, MAX_AGENT_PLAN_BYTES, type AgentPlan, type AgentPlanUpdate } from '../../shared/agent-plan.js';
+import { agentPlanNeedsReconciliation, agentPlanSchema, agentPlanUpdateSchema, MAX_AGENT_PLAN_BYTES, type AgentPlan, type AgentPlanUpdate } from '../../shared/agent-plan.js';
 import { getConfig } from '../config.js';
 import { logError, logInfo, logWarn } from '../logger.js';
 
@@ -1071,6 +1071,14 @@ export function appendEvent(sessionId: string, event: NewSessionEvent): Promise<
           throw error;
         }
         logWarn(`session ${sessionId}: append reported an error after sequence ${full.seq} was already durable`);
+      }
+      try {
+        await applyPlanLifecycleBoundary(sessionId, full);
+      } catch (error) {
+        // The journal is already authoritative at this point. A plan projection failure must
+        // not roll the session sequence backwards or invite the browser to replay the boundary.
+        // readSessionPlan() independently derives the same retirement from journal history.
+        logWarn(`session ${sessionId}: plan lifecycle projection failed after sequence ${full.seq}: ${(error as Error).message}`);
       }
       entry.nextSeq += 1;
       entry.tail.push(full);
@@ -2556,33 +2564,143 @@ async function readPlanFile(id: string): Promise<AgentPlan | null> {
   }
 }
 
+async function replacePlanFile(id: string, plan: AgentPlan): Promise<void> {
+  const bytes = JSON.stringify(agentPlanSchema.parse(plan));
+  if (Buffer.byteLength(bytes) > MAX_AGENT_PLAN_BYTES) throw new Error('Plan exceeds its storage budget');
+  const target = path.join(sessionDir(id), 'plan.json');
+  const temporary = `${target}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temporary, bytes, 'utf8');
+    await fs.rename(temporary, target);
+  } finally {
+    await fs.rm(temporary, { force: true }).catch(() => undefined);
+  }
+}
+
+/**
+ * The displayed plan is live work, not a permanent session badge.
+ *
+ * A proven completed turn pauses an unfinished document without falsifying any pending steps as
+ * completed. The one existing false-completion repair reopens that exact turn with an app-authored
+ * turn_start, which reactivates the same document. A normal later user turn leaves it paused until
+ * the model explicitly reconciles it with update_plan.
+ */
+async function applyPlanLifecycleBoundary(id: string, event: SessionEvent): Promise<void> {
+  if ((event.kind !== 'turn_end' && event.kind !== 'turn_start') || !event.turnId) return;
+  const previous = await readPlanFile(id);
+  if (!previous?.plan.length) return;
+  if (event.kind === 'turn_end' && event.outcome === 'completed' &&
+      previous.lifecycle?.state !== 'paused' && agentPlanNeedsReconciliation(previous)) {
+    // Pre-lifecycle documents have no sequence anchor. A delayed browser replay whose native
+    // timestamp predates that legacy plan is historical evidence, not its completion boundary.
+    if (!previous.lifecycle && event.time < previous.updatedAt) return;
+    const activatedAt = previous.lifecycle?.activatedAt ?? previous.updatedAt;
+    const activatedAfterSeq = previous.lifecycle?.activatedAfterSeq ?? 0;
+    const activatedByTurnId = previous.lifecycle?.activatedByTurnId ?? null;
+    await replacePlanFile(id, {
+      ...previous,
+      lifecycle: {
+        state: 'paused', activatedAt, activatedAfterSeq, activatedByTurnId,
+        pausedAt: Date.now(), pausedByTurnId: event.turnId, pausedBySeq: event.seq
+      }
+    });
+    return;
+  }
+  if (event.kind === 'turn_start' && event.source === 'app' && previous.lifecycle?.state === 'paused' &&
+      previous.lifecycle.pausedByTurnId === event.turnId) {
+    await replacePlanFile(id, {
+      ...previous,
+      lifecycle: { state: 'active', activatedAt: Date.now(), activatedAfterSeq: event.seq, activatedByTurnId: event.turnId }
+    });
+  }
+}
+
+/** Journal fallback for legacy plans and the narrow crash window after a terminal append. */
+async function projectedPlanLifecycle(id: string, plan: AgentPlan): Promise<AgentPlan> {
+  if (!plan.plan.length || !agentPlanNeedsReconciliation(plan)) return plan;
+  const lifecycle = plan.lifecycle;
+  const afterSeq = lifecycle?.state === 'paused' ? lifecycle.pausedBySeq : lifecycle?.activatedAfterSeq ?? 0;
+  const boundaries = await readRecentEventsFromDisk(id, MAX_EVENT_TAIL, {
+    kinds: ['turn_start', 'turn_end'], before: Number.POSITIVE_INFINITY,
+    acceptEvent: event => event.seq > afterSeq && (lifecycle !== undefined || event.time >= plan.updatedAt)
+  });
+  let paused: Extract<AgentPlan['lifecycle'], { state: 'paused' }> | undefined = lifecycle?.state === 'paused' ? lifecycle : undefined;
+  let active: Extract<AgentPlan['lifecycle'], { state: 'active' }> | undefined = lifecycle?.state === 'active' ? lifecycle : undefined;
+  for (const event of [...boundaries].sort((a, b) => a.seq - b.seq)) {
+    if (event.kind === 'turn_end' && event.outcome === 'completed' && event.turnId) {
+      const source = active ?? lifecycle;
+      paused = {
+        state: 'paused', activatedAt: source?.activatedAt ?? plan.updatedAt,
+        activatedAfterSeq: source?.activatedAfterSeq ?? 0,
+        activatedByTurnId: source?.activatedByTurnId ?? null,
+        pausedAt: event.time, pausedByTurnId: event.turnId, pausedBySeq: event.seq
+      };
+      active = undefined;
+    } else if (event.kind === 'turn_start' && event.source === 'app' && event.turnId && paused?.pausedByTurnId === event.turnId) {
+      active = { state: 'active', activatedAt: event.time, activatedAfterSeq: event.seq, activatedByTurnId: event.turnId };
+      paused = undefined;
+    }
+  }
+  return paused ? { ...plan, lifecycle: paused } : active ? { ...plan, lifecycle: active } : plan;
+}
+
 export async function readSessionPlan(id: string): Promise<AgentPlan | null> {
   assertSessionId(id);
   await open.get(id)?.queue;
-  return readPlanFile(id);
+  const plan = await readPlanFile(id);
+  return plan ? projectedPlanLifecycle(id, plan) : null;
 }
 
 export async function updateSessionPlan(
   id: string, conversationId: string, input: AgentPlanUpdate, startedAt: number
 ): Promise<boolean> {
-  const plan = agentPlanSchema.parse({ ...agentPlanUpdateSchema.parse(input), updatedAt: startedAt });
-  const bytes = JSON.stringify(plan);
-  if (Buffer.byteLength(bytes) > MAX_AGENT_PLAN_BYTES) throw new Error('Plan exceeds its storage budget');
+  const update = agentPlanUpdateSchema.parse(input);
   const entry = await ensureOpen(id);
   return enqueueSessionOperation(entry, 'plan', async () => {
     // Rebind and plan updates use this same queue. A delayed A call cannot overwrite
     // B's plan after Compact & Resume, even if A was current when the tool started.
     if (entry.summary.conversationId !== conversationId) return false;
-    const previous = await readPlanFile(id);
-    if (previous && previous.updatedAt > startedAt) return false;
-    const target = path.join(sessionDir(id), 'plan.json');
-    const temporary = `${target}.${randomUUID()}.tmp`;
-    try {
-      await fs.writeFile(temporary, bytes, 'utf8');
-      await fs.rename(temporary, target);
-    } finally {
-      await fs.rm(temporary, { force: true }).catch(() => undefined);
+    const stored = await readPlanFile(id);
+    // The journal is authoritative for the tiny crash window where a completed turn reached
+    // events.jsonl but its plan lifecycle projection did not reach plan.json. Reconciliation
+    // must consume that projected pause too, otherwise an identical update can remain visibly
+    // paused forever after restart.
+    const previous = stored ? await projectedPlanLifecycle(id, stored) : null;
+    const lifecycleAt = previous?.lifecycle?.state === 'paused'
+      ? previous.lifecycle.pausedAt : previous?.lifecycle?.activatedAt ?? 0;
+    if (previous && Math.max(previous.updatedAt, lifecycleAt) > startedAt) return false;
+
+    const sameContent = previous !== null && JSON.stringify({
+      ...(previous.explanation === undefined ? {} : { explanation: previous.explanation }),
+      plan: previous.plan
+    }) === JSON.stringify(update);
+
+    // Idempotent update_plan calls are acknowledgements, not new plan revisions. In particular,
+    // the first identical call after a paused plan consumes the reconciliation by reactivating
+    // only lifecycle metadata while preserving updatedAt. Once active, repeating the same call
+    // is a true no-op: no disk write, no new revision key, and nothing for the reminder path to
+    // rediscover. This is what prevents the update_plan -> reminder -> update_plan feedback loop.
+    if (sameContent && previous.lifecycle?.state === 'active') return true;
+    if (sameContent) {
+      await replacePlanFile(id, agentPlanSchema.parse({
+        ...previous,
+        lifecycle: {
+          state: 'active', activatedAt: startedAt, activatedAfterSeq: entry.historySeq,
+          activatedByTurnId: entry.summary.activeTurnId ?? null
+        }
+      }));
+      return true;
     }
+
+    const plan = agentPlanSchema.parse({
+      ...update,
+      updatedAt: startedAt,
+      lifecycle: {
+        state: 'active', activatedAt: startedAt, activatedAfterSeq: entry.historySeq,
+        activatedByTurnId: entry.summary.activeTurnId ?? null
+      }
+    });
+    await replacePlanFile(id, plan);
     return true;
   });
 }

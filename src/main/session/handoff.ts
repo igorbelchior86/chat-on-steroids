@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import type { Handoff } from '../../shared/session.js';
 import { logInfo } from '../logger.js';
 import { getSession, readSessionPlan, saveHandoff } from './store.js';
+import { agentPlanNeedsReconciliation } from '../../shared/agent-plan.js';
 import { destinationContinuationMarker } from './handoff-prompt.js';
 import { userPromptText } from '../../shared/user-prompt.js';
 
@@ -26,7 +27,7 @@ export interface PrepareHandoffInput {
 }
 
 export function handoffPlanNotice(sessionId: string): string {
-  return `\n\nA task plan exists. Check the latest update_plan call with session(action="read", session_id="${sessionId}", include=["tools"]); expand its tool_call reference for the steps and statuses before continuing.`;
+  return `\n\nAn unresolved task plan exists. Check the latest update_plan call with session(action="read", session_id="${sessionId}", include=["tools"]); expand its tool_call reference for the steps and statuses. Reconcile it before continuing: update it if this work continues, or clear/complete it explicitly if it was superseded or finished.`;
 }
 
 /**
@@ -131,7 +132,7 @@ export async function prepareHandoff(input: PrepareHandoffInput): Promise<Handof
   if (shortfall) throw new Error(shortfall);
   const plan = await readSessionPlan(input.sessionId);
   // Persist the notice with the brief so delivery and exact bootstrap matching agree.
-  const planNotice = plan?.plan.length ? handoffPlanNotice(input.sessionId) : '';
+  const planNotice = agentPlanNeedsReconciliation(plan) ? handoffPlanNotice(input.sessionId) : '';
   const handoff: Handoff = {
     id: newHandoffId(),
     sessionId: input.sessionId,

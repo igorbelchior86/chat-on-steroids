@@ -27,10 +27,12 @@ import { lastToolCallAt, type ToolContext } from '../src/main/mcp/tools.js';
 import { friendlyError } from '../src/main/mcp/kernel.js';
 import { SURFACE_LIST, surfaceDefinition, type SurfaceId } from '../src/main/mcp/surfaces.js';
 import {
+  appendEvent,
   createSession,
   initSessionStore,
   rebindSession,
-  readSessionPlan
+  readSessionPlan,
+  updateSessionPlan
 } from '../src/main/session/store.js';
 import { resetWorkspaces, setWorkspaceFor } from '../src/main/workspace.js';
 import { DEFAULT_CAPABILITIES, type Capabilities, type Root } from '../src/shared/types.js';
@@ -3061,6 +3063,53 @@ describe('agent-maintained plans over MCP', () => {
     const disabled = await core('tools/call', { name: 'update_plan', arguments: { plan: [] } });
     expect(failed(disabled)).toBe(true);
     expect(textOf(disabled)).toContain('Session recording');
+  });
+
+  it('consumes one paused-plan reconciliation without looping when active turn identity is late', async () => {
+    ctx.sessionTools = true;
+    const conversationId = 'plan-reconciliation-loop';
+    const source = await createSession({ conversationId });
+    const oldPlan = { plan: [
+      { step: 'Map the work', status: 'completed' as const },
+      { step: 'Implement the change', status: 'in_progress' as const },
+      { step: 'Verify the result', status: 'pending' as const }
+    ] };
+    const progressed = { plan: [
+      { step: 'Map the work', status: 'completed' as const },
+      { step: 'Implement the change', status: 'completed' as const },
+      { step: 'Verify the result', status: 'in_progress' as const }
+    ] };
+    await appendEvent(source.id, { source: 'extension', kind: 'turn_start', turnId: 'plan-old-turn', time: Date.now() - 2_000 });
+    await updateSessionPlan(source.id, conversationId, oldPlan, Date.now() - 1_500);
+    await appendEvent(source.id, { source: 'extension', kind: 'turn_end', turnId: 'plan-old-turn', outcome: 'completed', time: Date.now() - 1_000 });
+    expect((await readSessionPlan(source.id))?.lifecycle?.state).toBe('paused');
+
+    const prove = (requestId: string, tool: string) => observeRequestCorrelation({
+      requestId, conversationId, sessionId: source.id, messageId: `msg-${requestId}`, tool, observedAt: Date.now()
+    });
+    const callPlan = async (requestId: string) => {
+      expect(prove(requestId, 'update_plan')).toBe('stored');
+      return modern('tools/call', { name: 'update_plan', arguments: progressed }, { 'x-request-id': `${requestId}/att1` });
+    };
+
+    const first = await callPlan('wfr_plan_reconcile_once');
+    expect(failed(first), textOf(first)).toBe(false);
+    expect(textOf(first)).not.toContain('Agent Plan reconciliation');
+    const afterFirst = await readSessionPlan(source.id);
+    expect(afterFirst?.lifecycle?.state).toBe('active');
+    const revision = afterFirst?.updatedAt;
+
+    const duplicate = await callPlan('wfr_plan_reconcile_duplicate');
+    expect(failed(duplicate), textOf(duplicate)).toBe(false);
+    expect(textOf(duplicate)).not.toContain('Agent Plan reconciliation');
+    expect((await readSessionPlan(source.id))?.updatedAt).toBe(revision);
+
+    expect(prove('wfr_plan_reconcile_followup', 'read')).toBe('stored');
+    const followup = await modern('tools/call', {
+      name: 'read', arguments: { paths: ['/workspace/src/app.ts'] }
+    }, { 'x-request-id': 'wfr_plan_reconcile_followup/att1' });
+    expect(failed(followup), textOf(followup)).toBe(false);
+    expect(textOf(followup)).not.toContain('Agent Plan reconciliation');
   });
 });
 

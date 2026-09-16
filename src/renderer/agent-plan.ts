@@ -1,5 +1,5 @@
 import { ui, t } from './i18n.js';
-import type { AgentPlan } from '../shared/agent-plan.js';
+import { agentPlanIsVisible, type AgentPlan } from '../shared/agent-plan.js';
 import { el, icon } from './dom.js';
 
 /** One current plan above the composer queue; every model string is text, never HTML. */
@@ -9,7 +9,7 @@ export function renderAgentPlan(host: HTMLElement, sessionId: string | null, pla
     host.dataset.sessionId = sessionId ?? '';
     delete host.dataset.signature;
   }
-  if (!sessionId || !plan?.plan.length) {
+  if (!sessionId || !agentPlanIsVisible(plan) || !plan.plan.length) {
     host.hidden = true;
     host.replaceChildren();
     delete host.dataset.signature;

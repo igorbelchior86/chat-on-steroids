@@ -91,9 +91,10 @@ import { anyContinuationOpen, compactingConversation } from '../session/continua
 import { acknowledgeBackgroundExecOutput, backgroundExecRecoveryNotices, offerBackgroundExecOutput } from '../codex/ownership.js';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '../codex/unified-exec-constants.js';
 import { unattributedRepairEta } from '../bridge.js';
-import { conversationAttachment, readOverflowText } from '../session/store.js';
+import { conversationAttachment, getSession, readOverflowText, readSessionPlan } from '../session/store.js';
 import { sessionFinishDeadline } from '../session/finish.js';
 import type { StoredText, ToolOutcome } from '../../shared/session.js';
+import { agentPlanNeedsReconciliation, agentPlanReconciliationInstructions } from '../../shared/agent-plan.js';
 
 export interface ToolContext {
   exposedFinishTool?: boolean;
@@ -156,6 +157,8 @@ export function failIdentity(text: string): ToolResult {
 // remains the only join, including when late proof belongs to an earlier request.
 const identityRecovery = new Map<string, { tools: Set<string>; offer?: CallContext['publication'] }>();
 const MAX_IDENTITY_RECOVERY = 2_000;
+const planReconciliationOffers = new Set<string>();
+const MAX_PLAN_RECONCILIATION_OFFERS = 2_000;
 
 function rememberIdentityRefusal(requestId: string | null, tool: string): void {
   if (!requestId) return;
@@ -200,6 +203,44 @@ async function withIdentityRecoveredNotice(context: CallContext, result: ToolRes
   return { ...result, content: [...result.content, { type: 'text', text }] };
 }
 
+/** One reminder per durable plan revision and user turn, never one reminder per tool call. */
+async function withAgentPlanReconciliationNotice(context: CallContext, result: ToolResult): Promise<ToolResult> {
+  const { sessionId, conversationId, requestId } = context.caller;
+  if (!sessionId || !conversationId) return result;
+  // This appendix is advisory and must never make an otherwise valid tool result fail. Some
+  // connector/unit paths deliberately run before session recording has initialised its store;
+  // production can also be shutting down while a final result is being published.
+  let plan: Awaited<ReturnType<typeof readSessionPlan>>;
+  let session: Awaited<ReturnType<typeof getSession>>;
+  try {
+    [plan, session] = await Promise.all([readSessionPlan(sessionId), getSession(sessionId)]);
+  } catch {
+    return result;
+  }
+  if (!agentPlanNeedsReconciliation(plan) || session?.conversationId !== conversationId) return result;
+  // Any accepted update_plan writes an active lifecycle, even when browser turn identity has not
+  // arrived yet. That durable state is the reconciliation acknowledgement. Waiting for
+  // activeTurnId here made each subsequent request look like a new owner and re-injected the
+  // notice after the very update_plan that was supposed to consume it.
+  if (plan.lifecycle?.state === 'active') return result;
+  const currentTurnId = session.activeTurnId ?? null;
+  const turnKey = currentTurnId ?? requestId;
+  if (!turnKey) return result;
+  const lifecycleKey = plan.lifecycle?.state === 'paused'
+    ? `p${plan.lifecycle.pausedBySeq}`
+    : 'legacy';
+  const key = `${sessionId}:${plan.updatedAt}:${lifecycleKey}:${turnKey}`;
+  if (planReconciliationOffers.has(key)) return result;
+  const text = `\n--- Agent Plan reconciliation ---\n${agentPlanReconciliationInstructions(plan)}`;
+  const used = result.content.reduce((bytes, part) => bytes + (part.type === 'text' ? Buffer.byteLength(part.text, 'utf8') : 0), 0);
+  if (used + Buffer.byteLength(text, 'utf8') > DEFAULT_MAX_OUTPUT_TOKENS * 4) return result;
+  planReconciliationOffers.add(key);
+  if (planReconciliationOffers.size > MAX_PLAN_RECONCILIATION_OFFERS) {
+    planReconciliationOffers.delete(planReconciliationOffers.values().next().value!);
+  }
+  return { ...result, content: [...result.content, { type: 'text', text }] };
+}
+
 /** Maps runtime errors to short model-facing text without ever exposing real paths. */
 export function friendlyError(err: unknown): string {
   if (err instanceof SandboxError || err instanceof ComputerError) return err.message;
@@ -241,6 +282,7 @@ export function lastToolCallAt(surface?: SurfaceId): number | null {
 /** Cleared with the server, so the answer is always about the current session. */
 export function resetToolClock(): void {
   identityRecovery.clear();
+  planReconciliationOffers.clear();
   toolCallSeenAt = null;
   surfaceToolCallAt.clear();
   transportIdentity = { checked: false, present: false };
@@ -864,6 +906,7 @@ async function dispatchTracked(
     delivered = await withBackgroundExecRecovery(context, delivered);
   }
   if (!nested) delivered = await withIdentityRecoveredNotice(context, delivered);
+  if (!nested && surface === 'core') delivered = await withAgentPlanReconciliationNotice(context, delivered);
   if (surface === 'plugins' && delivered.content.length > baseResult.content.length) {
     // All delivery projections above append to the immutable handler result. Only these
     // new app-authored blocks need redacting; traversing its large external payload again

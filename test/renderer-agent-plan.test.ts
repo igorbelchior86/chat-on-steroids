@@ -42,6 +42,18 @@ it('clears other chats immediately and does not inherit their expanded state', (
   expect(host.hidden).toBe(true);
 });
 
+it('does not render a paused incomplete plan until the model reconciles it', () => {
+  renderAgentPlan(host, 'a', {
+    ...plan,
+    lifecycle: {
+      state: 'paused', activatedAt: 1, activatedAfterSeq: 1, activatedByTurnId: 'turn-one',
+      pausedAt: 2, pausedByTurnId: 'turn-one', pausedBySeq: 2
+    }
+  });
+  expect(host.hidden).toBe(true);
+  expect(host.childElementCount).toBe(0);
+});
+
 it('celebrates completion once, dismisses the card and keeps completed reloads hidden', async () => {
   const complete = { ...plan, updatedAt: 2, plan: plan.plan.map(step => ({ ...step, status: 'completed' as const })) };
   renderAgentPlan(host, 'a', plan);

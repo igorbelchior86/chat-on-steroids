@@ -4,8 +4,8 @@ import path from 'node:path';
 import { defaultConfig, initConfigPath, saveConfig } from '../src/main/config.js';
 import { initDurableStore, resetDurableForTests } from '../src/main/durable.js';
 import { addProject, assignSessionProject } from '../src/main/projects.js';
-import { createSession, initSessionStore, rebindSession, resetSessionStoreForTests } from '../src/main/session/store.js';
-import { fitSessionPrompt, prepareSessionPrompt } from '../src/main/session/prompt.js';
+import { appendEvent, createSession, initSessionStore, rebindSession, resetSessionStoreForTests, updateSessionPlan } from '../src/main/session/store.js';
+import { fitSessionPrompt, prepareSessionPrompt, prepareSkillFollowup } from '../src/main/session/prompt.js';
 import { MAX_CHATGPT_MESSAGE_CHARS, prependUserPrompt, userPromptText } from '../src/shared/user-prompt.js';
 import { makeTempDir, removeTempDir } from './helpers.js';
 
@@ -120,6 +120,24 @@ it('uses durable session ownership through resume and worker inheritance, never 
   expect(await prepareSessionPrompt('Worker', { sessionId: worker.id })).toContain('PROJECT_ONE_ONLY');
   const unfiled = await createSession({ title: 'Unfiled' });
   expect(await prepareSessionPrompt('Ordinary chat', { sessionId: unfiled.id, projectId: two.id })).not.toContain('PROJECT_TWO_ONLY');
+});
+
+it('carries a paused Agent Plan into the next authored follow-up without changing the visible user text', async () => {
+  const session = await createSession({ title: 'Plan follow-up', conversationId: 'plan-followup' });
+  await appendEvent(session.id, { source: 'extension', kind: 'turn_start', turnId: 'turn-plan', time: 100 });
+  await updateSessionPlan(session.id, 'plan-followup', {
+    plan: [
+      { step: 'Inspect the lifecycle', status: 'completed' },
+      { step: 'Repair plan ownership', status: 'in_progress' }
+    ]
+  }, 200);
+  await appendEvent(session.id, { source: 'extension', kind: 'turn_end', turnId: 'turn-plan', outcome: 'completed', time: 300 });
+  const prompt = await prepareSkillFollowup('Continue with the fix', 'Continue with the fix', undefined, session.id);
+  expect(userPromptText(prompt)).toBe('Continue with the fix');
+  expect(prompt).toContain('# Agent Plan reconciliation');
+  expect(prompt).toContain('1/2 completed');
+  expect(prompt).toContain('[in_progress] Repair plan ownership');
+  expect(prompt).toContain('clear or complete the plan explicitly');
 });
 
 it('bounds a large file and refuses invalid file types and revoked access without injecting their contents', async () => {
