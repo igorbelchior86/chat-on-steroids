@@ -1,6 +1,6 @@
 import { applyLoginStartup, supportsLoginStartup } from './window-lifecycle.js';
 import { prepareFollowupPrompt, prepareSessionPrompt } from './session/prompt.js';
-import { importSkillFile, isSafeSkillId, listSkills, removeSkill } from './skills.js';
+import { importSkill, isSafeSkillId, listSkills, removeSkill } from './skills.js';
 import { acknowledgeChatgptPermissionNotice, getChatgptPermissionNotice, requestChatgptPermissionNotice } from './chatgpt-permission-notice.js';
 import { noteChatOrigin } from './session/recorder.js';
 import { REASONING_EFFORTS } from '../shared/session.js';
@@ -52,7 +52,7 @@ import { forgetExposedSurface } from './mcp/server.js';
 import { runDiagnostics } from './diagnostics.js';
 import { formatLogAsJson, formatLogForClipboard, getLog, logInfo, onLog } from './logger.js';
 import { RESERVED_ROOT_NAMES, uniqueRootName, validateNewRoot, SandboxError, resolvePath } from './sandbox.js';
-import { addProject, listProjects, removeProject } from './projects.js';
+import { addProject, getSessionProject, listProjects, projectWorkspace, removeProject } from './projects.js';
 import { hasSecret, isEncryptionAvailable, secureStorageStatus, setSecret } from './secrets.js';
 import { setupApiKeySlot } from '../shared/setup-profile.js';
 import { addSetupProfile, removeSetupProfile, switchSetupProfile } from './setup-profiles.js';
@@ -395,14 +395,28 @@ function handle<T>(channel: string, fn: (payload: unknown) => Promise<T>): void 
 }
 
 export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall: () => void): void {
-  handle('skills:list', async () => listSkills());
-  handle('skills:import', async () => {
-    const chosen = await dialog.showOpenDialog({ title: 'Import a skill', properties: ['openFile'],
+  const skillScopeSchema = z.object({
+    sessionId: z.string().min(8).max(64).nullable().optional(),
+    projectId: z.string().uuid().nullable().optional()
+  }).strict();
+  const skillScope = async (payload: unknown): Promise<{ projectPath: string | null }> => {
+    const scope = skillScopeSchema.parse(payload ?? {});
+    const folder = scope.sessionId
+      ? await getSessionProject(scope.sessionId)
+      : scope.projectId
+        ? await projectWorkspace(scope.projectId)
+        : null;
+    return { projectPath: folder?.real ?? null };
+  };
+  handle('skills:list', async payload => listSkills(await skillScope(payload)));
+  handle('skills:import', async payload => {
+    const scope = await skillScope(payload);
+    const chosen = await dialog.showOpenDialog({ title: 'Import a skill', properties: ['openFile', 'openDirectory'],
       filters: [{ name: 'Text skills', extensions: ['md', 'txt'] }] });
     if (chosen.canceled) return null;
-    if (chosen.filePaths.length !== 1) throw new Error('Choose one skill file.');
-    await importSkillFile(chosen.filePaths[0]!);
-    return listSkills();
+    if (chosen.filePaths.length !== 1) throw new Error('Choose one skill file or package folder.');
+    await importSkill(chosen.filePaths[0]!);
+    return listSkills(scope);
   });
   handle('skills:openFolder', async () => {
     const library = await listSkills();
@@ -411,9 +425,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
     if (error) throw new Error('Could not open the skills folder.');
   });
   handle('skills:remove', async payload => {
-    const { id } = z.object({ id: z.string().max(64).refine(isSafeSkillId, 'Invalid skill id') }).strict().parse(payload);
+    const { id, sessionId, projectId } = skillScopeSchema.extend({
+      id: z.string().max(64).refine(isSafeSkillId, 'Invalid skill id')
+    }).parse(payload);
     await removeSkill(id);
-    return listSkills();
+    return listSkills(await skillScope({ sessionId, projectId }));
   });
   handle('setup:profile', async payload => {
     const request = z.discriminatedUnion('action', [
@@ -1099,9 +1115,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
       // Only the opening user input owns executor setup. Existing chats, queued
       // checkpoints and automatic continuations already have their instructions.
       const opening = !entry.sessionId && !entry.conversationId && !entry.finishOwner && entry.mode !== 'finish';
-      const skillCommands = [authored?.text ?? entry.text, ...(opening && authored?.objective ? [authored.objective] : [])];
+      const skillCommands = [...entry.skillCommands ?? [], authored?.text ?? entry.text, ...(opening && authored?.objective ? [authored.objective] : [])];
       return opening ? prepareSessionPrompt(text, { ...entry, skillCommands }, limits)
-        : prepareFollowupPrompt(text, skillCommands, limits);
+        : prepareFollowupPrompt(text, skillCommands, limits, { sessionId: entry.sessionId, projectId: entry.projectId });
     },
     applyAutomation: async (conversationId, automation, phase, objective, loopAfterTurn) => {
       // This message supersedes the old final; never pick that old final up merely

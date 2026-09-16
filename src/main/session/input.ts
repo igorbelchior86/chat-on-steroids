@@ -29,6 +29,7 @@ export const inputArgs = z.object({
   automation: z.enum(['off', 'goal', 'loop']).optional(),
   loopAfterTurn: z.boolean().optional(),
   objective: z.string().trim().max(16000).optional(),
+  skillCommands: z.array(z.string().regex(/^\/[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/)).max(16).optional(),
   stages: z.array(z.string().trim().min(1).max(16000)).max(11).optional(),
   images: z.array(z.object({ name: z.string().min(1).max(110), dataUrl: z.string().max(512100).regex(/^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/) })).max(4).optional(),
   attachments: z.array(attachmentSchema).max(20).optional(),

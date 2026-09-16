@@ -379,25 +379,32 @@ native source text; rendered Markdown whitespace alone cannot prove a send. Loca
 presentation, including worker messages without outbox receipts, ignores provider-added whitespace before the frame, then validates its exact
 internal length and closing boundary; authored whitespace after the frame remains intact.
 
-### Text skills share the existing filesystem and prompt owners
+### Skills share the existing filesystem and prompt owners
 
-`skills.ts` owns the initially empty user-data `skills/<id>/SKILL.md` library. Import accepts
-bounded UTF-8 Markdown/text, inert frontmatter and exclusive new directories; name collisions,
-binary data and link escapes are errors. Disk enumeration is bounded and reports omissions.
-Removal deletes the selected SKILL.md and only an empty directory, preserving supporting files.
-The reserved `/skills` Core root exposes only the canonical managed directory, with normal live
-capabilities. Reading or writing it never changes the chat's learned project workspace.
+`skills.ts` owns the managed user-data `skills/<id>/SKILL.md` library and discovers Codex-style
+packages from ancestor project `.agents/skills`, the scoped project `.codex/skills`, `~/.agents/skills`, legacy
+`$CODEX_HOME/skills`, `$CODEX_HOME/skills/.system`, and the platform admin skills directory.
+External discovery is recursive and bounded, uses canonical `SKILL.md` identity, follows allowed
+User/Repo/Admin skill-directory links with cycle/dedupe protection, and ignores System links. The
+managed root stays symlink-strict. Package imports preserve supporting resources while refusing
+escaping links. Standard global roots join Core as explicit resource aliases whose structured file
+mutations are refused; command execution retains its existing shell semantics. The managed skill
+root remains the structured write destination and skill reads never change the learned project workspace.
 
-The composer Plus menu opens a searchable Skills library; a leading slash autocompletes installed
-commands. `/<id>` and `/prompt <id>` select full bodies. Commands are interpreted only in the
-leading command block, once per selected id. Main preparation receives authored input before
-workflow wrappers and freezes the expanded frame in the existing delivery ledger. The order is
-Core plus a bounded metadata index, selected skills, optional AGENTS, then the complete user text.
-An explicit follow-up selection adds only its skills, without repeating Core setup. Missing or
-oversized selected skills fail visibly rather than silently losing instructions. Metadata is
-refreshed from disk, including skills installed by the model with existing file/command tools.
-No bundled skills, new MCP surface, automatic script execution or permission expansion accompanies
-an import. Dialog and autocomplete replies must still belong to the current draft and request.
+External `SKILL.md` files require frontmatter and a description; managed legacy Markdown/text imports
+remain accepted. Optional `agents/openai.yaml` supplies interface metadata, dependencies and
+`policy.allow_implicit_invocation` without executing hooks. Applicable Codex `config.toml` skill
+settings can disable skills, suppress bundled/system skills, control the implicit instruction index,
+and bound its context budget. Explicit `/command` selection always resolves one exact discovered
+`SKILL.md`; duplicate names receive deterministic qualified commands. `/prompt <command>` remains
+compatible. Commands are interpreted only in the leading command block.
+
+Main preparation receives authored input before workflow wrappers and freezes the expanded frame in
+the existing delivery ledger. The order is Core plus the bounded implicit skill index when enabled,
+complete explicitly selected skills, optional AGENTS, then the complete user text. Follow-up
+selections add only their skills. Missing, disabled or oversized selected skills fail visibly. Skills
+never register MCP tools, grant permissions or automatically execute package scripts. Dialog and
+autocomplete replies must still belong to the current draft and scoped project request.
 
 ### First-use ChatGPT approval guidance is not provider approval
 

@@ -7,7 +7,7 @@ import { currentCoreInstructions } from '../src/main/mcp/instructions.js';
 import { resolveIn } from '../src/main/mcp/kernel.js';
 import { emptyEvidence, runInCallContext, type CallContext } from '../src/main/mcp/call-context.js';
 import { addProject } from '../src/main/projects.js';
-import { withSkillsRoot } from '../src/main/skill-context.js';
+import { skillIndexInstructions, withSkillsRoot } from '../src/main/skill-context.js';
 import { importSkillFile, initSkills, skillsDirectory } from '../src/main/skills.js';
 import { prepareFollowupPrompt, prepareSessionPrompt } from '../src/main/session/prompt.js';
 import { initSessionStore, resetSessionStoreForTests } from '../src/main/session/store.js';
@@ -19,13 +19,19 @@ let directory = '';
 let approved = '';
 let projectDirectory = '';
 let userData = '';
+let codexHome = '';
+let oldCodexHome: string | undefined;
 
 beforeEach(async () => {
   directory = await makeTempDir('cos-skills-integration-');
   approved = path.join(directory, 'approved');
   projectDirectory = path.join(approved, 'project');
   userData = path.join(directory, 'user-data');
+  codexHome = path.join(directory, 'codex-home');
+  oldCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = codexHome;
   await fs.mkdir(projectDirectory, { recursive: true });
+  await fs.mkdir(codexHome, { recursive: true });
   initConfigPath(directory);
   initDurableStore(directory);
   initSessionStore(directory);
@@ -38,6 +44,7 @@ afterEach(async () => {
   resetWorkspaces();
   resetSessionStoreForTests();
   resetDurableForTests();
+  if (oldCodexHome === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = oldCodexHome;
   await removeTempDir(directory);
 });
 
@@ -104,6 +111,40 @@ it('keeps the metadata index fresh and bounded without eagerly copying skill bod
   const refreshed = await currentCoreInstructions();
   expect(refreshed).toContain(`- /${skill.id}: "Refreshed from disk"`);
   expect(refreshed).not.toContain('NEW_BODY_NOT_IN_INDEX');
+});
+
+it('honors Codex include_instructions while keeping explicit slash selection available', async () => {
+  await installSkill('Explicit Only', 'Explicit description', 'EXPLICIT_ONLY_BODY\n');
+  await fs.writeFile(path.join(codexHome, 'config.toml'), '[skills]\ninclude_instructions = false\n', 'utf8');
+
+  expect(await skillIndexInstructions()).toBe('');
+  const prompt = await prepareSessionPrompt('/explicit-only\nRun it.');
+  expect(prompt).not.toContain('# Available skills');
+  expect(prompt).toContain('# Selected skills');
+  expect(prompt).toContain('EXPLICIT_ONLY_BODY');
+});
+
+it('applies renderer-selected Skill commands without requiring slash text in the authored message', async () => {
+  await installSkill('Visual Skill', 'Chosen from the composer row', 'VISUAL_SKILL_BODY\n');
+  const authored = 'Build the dashboard without showing a slash directive.';
+  const prompt = await prepareSessionPrompt(authored, { skillCommands: ['/visual-skill'] });
+  expect(prompt).toContain('# Selected skills');
+  expect(prompt).toContain('VISUAL_SKILL_BODY');
+  expect(userPromptText(prompt)).toBe(authored);
+  expect(userPromptText(prompt)).not.toContain('/visual-skill');
+});
+
+it('bounds the implicit skill catalogue from skills.max_context_tokens', async () => {
+  for (let index = 0; index < 24; index++) {
+    await installSkill(`Catalog ${index}`, `Description ${index} ${'detail '.repeat(24)}`, `BODY_${index}\n`);
+  }
+  await fs.writeFile(path.join(codexHome, 'config.toml'), '[skills]\nmax_context_tokens = 500\n', 'utf8');
+
+  const index = await skillIndexInstructions();
+  expect(index.length).toBeLessThanOrEqual(2_000);
+  expect(index).toContain('# Available skills');
+  expect(index).toContain('additional skills omitted');
+  expect(index).not.toContain('BODY_0');
 });
 
 it('deduplicates multiple selected skills in first-seen order and follow-ups repeat no main setup', async () => {

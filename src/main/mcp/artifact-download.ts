@@ -20,6 +20,7 @@ import {
   type OpenAIFileAdapterOptions
 } from './artifact-fetch.js';
 import { ArtifactTargetError, openArtifactTarget } from './artifact-target.js';
+import { isReadOnlySkillRoot } from '../skills.js';
 
 export interface SavedArtifact {
   /** Normalised virtual path, always "/root/..." with forward slashes. */
@@ -61,6 +62,9 @@ export async function downloadArtifactFile(
   const resolved = await resolveIn(roots as Parameters<typeof resolveIn>[0], requestedPath, {
     allowMissing: true
   });
+  if (isReadOnlySkillRoot(resolved.root.name)) {
+    throw new ArtifactTargetError('Standard Codex skill roots are read-only. Save the file elsewhere or import the skill into /skills.');
+  }
   const parentReal = nodePath.dirname(resolved.real);
   const name = nodePath.basename(resolved.real);
   const rootReal = await fs.realpath(resolved.root.path);

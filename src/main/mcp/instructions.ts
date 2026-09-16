@@ -19,6 +19,7 @@ import { isGitRepository } from '../toolchain.js';
 import type { ToolContext } from './kernel.js';
 import { surfaceDefinition, type SurfaceId } from './surfaces.js';
 import { skillIndexInstructions, withSkillsRoot } from '../skill-context.js';
+import type { SkillScopeOptions } from '../skills.js';
 
 export function serverInstructions(
   ctx: ToolContext,
@@ -30,11 +31,11 @@ export function serverInstructions(
 }
 
 /** Same complete source as MCP initialization, evaluated when a user send is prepared. */
-export async function currentCoreInstructions(): Promise<string> {
+export async function currentCoreInstructions(skillScope: SkillScopeOptions = {}): Promise<string> {
   const config = getConfig();
   const core = serverInstructions(withSkillsRoot({ roots: config.roots, caps: effectiveCapabilities(config),
     readOnly: config.readOnly, privacyScreenshots: config.ui.privacyScreenshots }), 'core', process.platform);
-  const skills = await skillIndexInstructions();
+  const skills = await skillIndexInstructions(skillScope);
   return skills ? `${core}\n\n${skills}` : core;
 }
 
@@ -85,7 +86,7 @@ function coreInstructions(ctx: ToolContext, platform: NodeJS.Platform): string {
   );
   if (caps.read) lines.push('view_image inspects a local image. Use it when visual evidence matters.');
   if (ctx.roots.some(root => root.name === 'skills')) lines.push(
-    'The managed skill library is /skills/<id>/SKILL.md. List and read it with the existing file tools when relevant. Install user-requested text skills there using the existing write tools. Skills do not register MCP tools or execute hooks. Keep explicit project workdir paths when installing skills.'
+    'The managed skill library is /skills/<id>/SKILL.md. Standard global Codex skill roots may also appear as /skill-user, /skill-codex, /skill-system and /skill-admin; those roots are read-only. List and read supporting skill resources when relevant. Install user-requested skills into /skills. Skills do not register MCP tools or execute hooks. Keep explicit project workdir paths when installing skills.'
   );
   if (caps.command) {
     lines.push(

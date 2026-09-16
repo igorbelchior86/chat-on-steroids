@@ -1,47 +1,82 @@
 # Skills
 
-Skills are reusable text instructions for ChatGPT. The library starts empty.
+Skills are reusable instruction packages for ChatGPT. CoS keeps its own managed library and also discovers standard Codex skill locations.
 
 ## Add and select a skill
 
-Open **+ → Skills** in the composer and choose **Import skill file**. Select a Markdown `.md` or text `.txt` file. CoS copies it into its managed library. An existing skill with the same command is never overwritten by import.
+Open **+ → Skills** in the composer and choose **Import skill**. You can select a Markdown `.md`/`.txt` file or a complete skill package directory containing `SKILL.md`. Package imports copy supporting folders such as `scripts/`, `references/`, `assets/` and `agents/` into the managed library. An existing managed skill is never overwritten.
 
-Choose **Use** beside an installed skill, or type **/** at the beginning of the composer to search by command, name or description. Use the arrow keys and Enter or Tab to select a result. Escape closes the suggestions. The command is inserted before your task:
+Choose **Use**, or type **/** at the beginning of the composer. The picker searches command, name, description, scope and source. Arrow keys plus Enter/Tab select a result; Escape closes suggestions.
 
 ```text
 /code-review
 Review the changes in this project.
 ```
 
-Several leading command lines select several skills. `/prompt code-review` also works. Commands in quoted text, code blocks or later task prose do not select skills.
+Several leading command lines can select several skills. `/prompt code-review` and `/prompt /code-review` remain supported. Commands in quoted text, code blocks or later task prose are not treated as skill selectors. If two discovered skills would have the same command, CoS gives them deterministic qualified commands instead of choosing one silently.
 
-The first outgoing message contains the main instructions and an index of installed skills, then the complete selected skill instructions, project AGENTS.md and your message. An explicit skill in a follow-up adds its instructions without repeating the main setup. Prepared delivery text is retained for retries, so editing or removing a skill cannot change a message already prepared for delivery.
+## Discovery locations
 
-The complete message remains within 96,000 UTF-16 characters and the transport's UTF-8 byte limit. AGENTS.md is shortened first, with a notice to read the rest. Selected skills and your task are never silently cut; a selection that cannot fit produces an error.
+For the current project scope CoS discovers skills from:
 
-## File format
+- `.agents/skills` from the repository root through the selected project directory
+- `.codex/skills` in the selected project directory
+- `~/.agents/skills`
+- legacy `$CODEX_HOME/skills` (normally `~/.codex/skills`)
+- `$CODEX_HOME/skills/.system`
+- `/etc/codex/skills` on macOS/Linux, or `%ProgramData%\OpenAI\Codex\skills` on Windows
 
-Use `SKILL.md` with simple YAML frontmatter:
+Discovery is recursive to a bounded depth and uses the canonical `SKILL.md` path as identity. User, Repo and Admin skill-directory links may target another location and are deduplicated/cycle-checked; System skill links are ignored. Repo discovery starts from the approved project, but an allowed skill-directory link can resolve outside it without widening the project's ordinary Core filesystem root. Standard global aliases reject structured Core file mutations; command execution keeps its existing shell semantics.
+
+## File format and metadata
+
+External Codex skills use `SKILL.md` with YAML frontmatter and a non-empty description. `name` can fall back to the package directory name.
 
 ```markdown
 ---
 name: code-review
 description: Review changes for correctness, regressions and missing tests.
 ---
-Read the changed implementation and its callers. Report concrete defects with
-their triggering conditions. Run the smallest relevant tests before concluding.
+Read the changed implementation and its callers. Run the smallest relevant tests.
 ```
 
-Plain Markdown and text files also work. Without frontmatter, CoS uses a Markdown title or the imported filename. Frontmatter supports text metadata such as quoted and folded descriptions; it does not execute commands, hooks or templates. Skill IDs use lowercase letters, digits, dots, underscores and hyphens, with an alphanumeric first and last character. `prompt` and platform-reserved names are unavailable.
+Managed single-file imports retain compatibility with plain Markdown/text and can infer the name from a Markdown title or filename.
 
-The managed folder is `<CoS user data>/skills/<id>/SKILL.md`. **Open skill directory** in the Skills window opens the actual location. Files must be valid UTF-8 text, at most 256 KiB each. CoS indexes up to 128 skills, checks at most 512 directory entries per scan and reports files it could not load. Binary files and paths escaping through links are rejected.
+A package may include `agents/openai.yaml`. CoS reads the Codex interface fields `display_name`, `short_description`, `default_prompt`, tool dependencies and `policy.allow_implicit_invocation`. Metadata is inert: selecting a skill does not execute scripts or hooks.
 
-## Let the model install or use skills
+## Codex skill configuration
 
-Ask the model to install the instructions you provide into `/skills/code-review/SKILL.md`, using its existing Core file or command tools. The folder is available alongside your approved project roots. It exposes only the skills library; the same file permissions and Read-only setting apply.
+CoS honors supported skill settings from applicable Codex `config.toml` layers: the platform admin config, user `$CODEX_HOME/config.toml`, then project `.codex/config.toml` files from the repository root through the selected project. Higher and more specific layers override earlier values.
 
-The library refreshes from disk when opened or when a new slash-completion cycle begins. A model already in a conversation can list `/skills` and read a newly installed file without starting over. No external catalog, download or account is required by the feature itself.
+```toml
+[skills]
+include_instructions = true
+max_context_tokens = 10000
 
-Skills supply text guidance. They do not add MCP tools, enable plugins, grant permissions or run bundled scripts. A skill that requires an unavailable tool cannot make that tool available. Imported text should describe work you actually intend to authorize.
+[skills.bundled]
+enabled = true
 
-**Remove** deletes the selected `SKILL.md`; unrelated supporting files in its directory remain. Remove the corresponding command from an unsent draft, or select another installed skill, before sending it.
+[[skills.config]]
+name = "code-review"
+enabled = false
+
+[[skills.config]]
+path = "/absolute/path/to/a/SKILL.md"
+enabled = true
+```
+
+Each `[[skills.config]]` entry must select exactly one skill by `name` or canonical `path`. Disabled skills are omitted from the picker and cannot be invoked. `skills.bundled.enabled = false` suppresses system/bundled skills. `skills.include_instructions = false` removes the implicit skill catalogue from the main prompt while explicit `/command` selection remains available. `skills.max_context_tokens` bounds that catalogue. Malformed or unrelated TOML does not make otherwise valid skills unusable.
+
+## Prompt delivery
+
+The first outgoing message contains Core instructions and, when enabled, a bounded implicit skill index, then complete explicitly selected skill instructions, optional project `AGENTS.md`, and your message. A selected follow-up adds its skill instructions without repeating the main setup. Prepared delivery text is retained for retries, so later edits cannot change a message already prepared for delivery.
+
+The complete message remains within the 96,000 UTF-16-character limit and the transport UTF-8 byte limit. `AGENTS.md` is shortened first. Explicit skill bodies and user text are never silently cut; an explicit selection that cannot fit produces an error.
+
+## Managed library and safety
+
+The managed folder is `<CoS user data>/skills/<id>/`. **Open skill directory** opens that location. Managed `SKILL.md` files remain bounded UTF-8 text, and package import is bounded by entry count and total bytes. Binary skill text, unsafe names and escaping package links are rejected.
+
+The model can install user-requested content into the managed skill root using existing Core file tools. Standard global Codex aliases reject structured Core file mutations; the existing command permission remains shell-equivalent. Skills do not add MCP tools, enable plugins, grant permissions or automatically run `scripts/`; required tools must already be available.
+
+**Remove** is offered only for managed skills. It removes the managed `SKILL.md` and removes the directory only when empty; unrelated supporting files remain. External discovered skills are managed at their source location, not deleted by CoS.

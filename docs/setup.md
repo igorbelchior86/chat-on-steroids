@@ -47,7 +47,7 @@ History is stored locally, with recording on and 30-day retention by default. Cr
 
 ## Skills
 
-Open **+ → Skills** to import a `.md` or `.txt` instruction file, browse installed skills or open their folder. Type **/** in the composer to autocomplete a skill command. Skills start empty and use existing Core file tools; they do not install additional tools. See the [skills guide](skills.md) for the file format and model-assisted installation.
+Open **+ → Skills** to browse managed and discovered Codex skills, import a `.md`/`.txt` file or a complete skill package, or open the managed folder. Type **/** in the composer to autocomplete the exact skill command. CoS also discovers ancestor project `.agents/skills`, the selected project's `.codex/skills`, user `~/.agents/skills`, legacy `$CODEX_HOME/skills`, bundled `.system` skills and the platform admin directory. Standard global aliases reject structured Core file mutations, and skills do not install additional tools. See the [skills guide](skills.md) for package format, configuration and discovery rules.
 
 Opening a chat in a project includes its exact virtual folder in the model's main instructions, even without an AGENTS.md file. It is the default working folder; the model can work elsewhere when your task needs it and existing permissions allow it. Selected skills remain complete ahead of optional AGENTS.md content.
 

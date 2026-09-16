@@ -31,6 +31,7 @@ import {
 import { logInfo, logWarn } from '../logger.js';
 import { SandboxError, isNativeWindowsPath, resolvePath, strayVirtualPath } from '../sandbox.js';
 import { currentWorkspace } from '../workspace.js';
+import { isReadOnlySkillRoot } from '../skills.js';
 import type { Capabilities, Root } from '../../shared/types.js';
 import type { FileChange } from '../../shared/session.js';
 import { REASONING_EFFORTS } from '../../shared/session.js';
@@ -1970,6 +1971,11 @@ async function resolvePatchPaths(
     // First resolve the sandbox identity without requiring the leaf to exist. This gives later
     // hunks a stable real key even when the path exists only in the patch's simulated state.
     let resolved = await resolveIn(roots, spelledPath, { base: baseVirtual, allowMissing: true });
+    if (isReadOnlySkillRoot(resolved.root.name)) {
+      throw new SandboxError(
+        'Standard Codex skill roots are read-only in Core. Import the skill into /skills before changing it.'
+      );
+    }
     const state = pendingPresence.get(pathKey(resolved.real));
     // An untouched initial Update/Delete keeps the old strict Not-found behaviour. Once an
     // earlier hunk has established presence/absence, the verifier owns the sequential verdict.

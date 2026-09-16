@@ -14,6 +14,14 @@ type ProjectFolder = { virtual: string; real: string };
 const limits: PromptLimits = { maxChars: MAX_CHATGPT_MESSAGE_CHARS, maxBytes: Infinity };
 const cutNotice = '\n\n[Cut off because of the message limit. Read AGENTS.md yourself for the remaining instructions.]';
 
+async function promptFolder(scope: PromptScope): Promise<ProjectFolder | null> {
+  return scope.sessionId
+    ? getSessionProject(scope.sessionId)
+    : scope.projectId
+      ? projectWorkspace(scope.projectId)
+      : null;
+}
+
 /** One selected folder, never cwd inference, global discovery or a recursive document scan. */
 async function projectInstructions(scope: PromptScope, folder: ProjectFolder | null): Promise<ProjectInstructions | null> {
   if (!folder || !effectiveCapabilities(getConfig()).read) return null;
@@ -79,8 +87,12 @@ export function fitSessionPrompt(text: string, core: string, agents: ProjectInst
 export async function prepareSessionPrompt(text: string, scope: PromptScope = {}, budget = limits): Promise<string> {
   // The durable session binding wins over a caller's currently selected folder.
   // Include its virtual path even when AGENTS.md is absent or cannot spend any space.
-  const [main, skills, folder] = await Promise.all([currentCoreInstructions(), selectedSkillInstructions(scope.skillCommands ?? [text]),
-    scope.sessionId ? getSessionProject(scope.sessionId) : scope.projectId ? projectWorkspace(scope.projectId) : null]);
+  const folder = await promptFolder(scope);
+  const skillScope = { projectPath: folder?.real ?? null };
+  const [main, skills] = await Promise.all([
+    currentCoreInstructions(skillScope),
+    selectedSkillInstructions(scope.skillCommands ?? [text], skillScope),
+  ]);
   const project = folder ? `\n\n# Selected project\n\nPrimary working folder: ${JSON.stringify(folder.virtual)}. Use this folder as the default workdir and place the task's files here. Work outside it when the task needs it or the user directs you there, while respecting current tool permissions.` : '';
   const core = `${main}${project}${skills ? `\n\n${skills}` : ''}`;
   fitSessionPrompt(text, core, null, budget); // Reject mandatory overflow before reading optional files.
@@ -88,7 +100,13 @@ export async function prepareSessionPrompt(text: string, scope: PromptScope = {}
 }
 
 /** Explicitly selected follow-up skills use the same hidden frame without repeating setup. */
-export async function prepareFollowupPrompt(text: string, commands: readonly string[] = [text], budget = limits): Promise<string> {
-  const skills = await selectedSkillInstructions(commands);
+export async function prepareFollowupPrompt(
+  text: string,
+  commands: readonly string[] = [text],
+  budget = limits,
+  scope: PromptScope = {},
+): Promise<string> {
+  const folder = await promptFolder(scope);
+  const skills = await selectedSkillInstructions(commands, { projectPath: folder?.real ?? null });
   return skills ? fitSessionPrompt(text, skills, null, budget) : text;
 }

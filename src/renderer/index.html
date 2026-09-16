@@ -20,6 +20,7 @@
           />
         </g>
         <g id="i-bolt"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" /></g>
+        <g id="i-skill"><path d="m12 3 7 4v10l-7 4-7-4V7Z" /><path d="m5 7 7 4 7-4M12 11v10" /></g>
         <g id="i-home"><path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1Z" /></g>
         <g id="i-steps"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" /></g>
         <g id="i-pulse"><path d="M3 12h4l3 8 4-16 3 8h4" /></g>
@@ -864,7 +865,7 @@
             <div class="composer-dock" id="composerDock"><section class="agent-plan" id="agentPlan" aria-label="Agent task plan" hidden></section><div id="recoveryStatus" role="status" hidden></div><div id="taskPlanPreview" aria-label="Plan stages" hidden></div><div id="finishQueue" aria-label="Queued tasks" hidden></div><div id="activeGoalRow" hidden></div></div>
             <form class="composer" id="composer">
               <label class="sr-only" for="chatInput">Message ChatGPT</label>
-              <div id="composerImages" class="composer-images" hidden></div><textarea dir="auto" id="chatInput" rows="1" placeholder="Ask anything…" aria-autocomplete="list"></textarea><div id="skillAutocomplete" class="skill-autocomplete" role="listbox" aria-label="Skills" hidden></div>
+              <div id="composerSelectedSkills" class="composer-selected-skills" aria-label="Selected skills" hidden></div><div id="composerImages" class="composer-images" hidden></div><textarea dir="auto" id="chatInput" rows="1" placeholder="Ask anything…" aria-autocomplete="list"></textarea><div id="skillAutocomplete" class="skill-autocomplete" role="listbox" aria-label="Skills" hidden></div>
               <div class="composer-toolbar">
                 <details class="composer-menu" id="attachmentMenu">
                   <summary aria-label="Add attachments" title="Add attachments"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus" /></svg></summary>
@@ -978,7 +979,7 @@
         <div id="skillsList" class="skills-list"></div>
       </div>
       <div class="skills-dialog-actions">
-        <button class="btn" id="skillsImport" type="button"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus" /></svg>Import skill file</button>
+        <button class="btn" id="skillsImport" type="button"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus" /></svg>Import skill</button>
         <button class="btn" id="skillsOpenFolder" type="button"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-folder" /></svg>Open skill directory</button>
       </div>
     </dialog>

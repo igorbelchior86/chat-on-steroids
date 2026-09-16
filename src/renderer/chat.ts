@@ -3317,8 +3317,8 @@ async function retryPlannedInput(entry: InputEntry): Promise<void> {
   if (dismissedInputNotices.has(entry.id) || entry.stagesApplied || !['failed', 'cancelled'].includes(entry.state)) return;
   // The outbox retains the authored workflow after failure. Retry that payload, not
   // its stage-one display text, and never revive the old browser claim/receipt.
-  const { sessionId, projectId, text, objective, stages, images, attachments, attachmentDelivery, automation, loopAfterTurn, model, reasoningEffort, afterTurn } = entry;
-  const args: InputArgs = { id: crypto.randomUUID(), sessionId, projectId, text, objective, stages, images, attachments, attachmentDelivery,
+  const { sessionId, projectId, text, objective, skillCommands, stages, images, attachments, attachmentDelivery, automation, loopAfterTurn, model, reasoningEffort, afterTurn } = entry;
+  const args: InputArgs = { id: crypto.randomUUID(), sessionId, projectId, text, objective, skillCommands, stages, images, attachments, attachmentDelivery,
     automation, loopAfterTurn, model, reasoningEffort, afterTurn, mode: entry.requestedMode ?? entry.mode, dueAt: Date.now() };
   const generation = selectionGeneration;
   // Hide during the attempt, but persist dismissal only after its replacement is durable.
@@ -3407,11 +3407,13 @@ async function sendComposer(delivery?: 'finish', plan?: string[], planObjective?
   const dueAt = Date.now();
   const id = crypto.randomUUID();
   const authoredDraft = input.value;
+  const selectedSkillState = skillsController?.takeSelection(key) ?? { commands: [], skills: [] };
+  const skillCommands = selectedSkillState.commands.length ? selectedSkillState.commands : undefined;
   const attachmentPayload = { images: images.filter((file): file is InputImage => 'dataUrl' in file), attachments: images.filter((file): file is InputAttachment => 'id' in file),
     ...(mode === 'auto' && !plan && selectedId && controlledSessionId === selectedId && controlledSelection === generation &&
       controlledCanInject && images.some(file => 'id' in file) && injectableAttachments(images) ? { attachmentDelivery: 'tool' as const } : {}) };
   const objective = plan ? planObjective : mode === 'finish' ? undefined : $<HTMLTextAreaElement>('sessionObjective').value.trim() || undefined;
-  startingInputs.set(id, { id, sessionId, projectId, text, ...attachmentPayload, stages: plan?.slice(1), objective, mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn',
+  startingInputs.set(id, { id, sessionId, projectId, text, skillCommands, ...attachmentPayload, stages: plan?.slice(1), objective, mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn',
     dueAt, ...modelSettings, state: 'queued', owner: null, createdAt: dueAt, conversationId: null });
   input.value = ''; inputDrafts.delete(key);
   imageDrafts.delete(key); paintComposerImages();
@@ -3419,9 +3421,10 @@ async function sendComposer(delivery?: 'finish', plan?: string[], planObjective?
   void refreshInputQueue();
   paintDeliveryControls();
   try {
-    const result = await run(api.sendInput({ id, sessionId, projectId, text, ...attachmentPayload, stages: plan?.slice(1), objective, automation: mode === 'finish' ? undefined : $<HTMLSelectElement>('chatAutomation').value as InputAutomation, loopAfterTurn: openingLoopDelivery(), mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn', dueAt, ...modelSettings }));
+    const result = await run(api.sendInput({ id, sessionId, projectId, text, skillCommands, ...attachmentPayload, stages: plan?.slice(1), objective, automation: mode === 'finish' ? undefined : $<HTMLSelectElement>('chatAutomation').value as InputAutomation, loopAfterTurn: openingLoopDelivery(), mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn', dueAt, ...modelSettings }));
     if (cancelledStarts.has(id)) return;
     if (!result) {
+      skillsController?.restoreSelection(key, selectedSkillState.skills);
       if (selectedId === sessionId && selectionGeneration === generation && !input.value) input.value = authoredDraft;
       else if (!inputDrafts.get(key)) inputDrafts.set(key, authoredDraft);
       if (images.length) imageDrafts.set(key, [...images, ...(imageDrafts.get(key) ?? [])]);
@@ -3498,7 +3501,7 @@ function selectNewChat(projectId: string | null = null): void {
   newChatSelected = true; selectedId = null; selectedProjectId = projectId; detailFor = null; detailCursor = null;
   applyComposerSessionModel(null, null);
   cancelTaskPlan();
-  inputDrafts.delete(draftKey()); imageDrafts.delete(draftKey());
+  inputDrafts.delete(draftKey()); imageDrafts.delete(draftKey()); skillsController?.forgetDraft(draftKey());
   $('inputQueue').replaceChildren();
   restoreDraft(); showView('timeline'); paintSessions(); void loadDetail();
   if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
@@ -3516,7 +3519,12 @@ export function initChat(next: Deps): void {
   skillsController = createSkills({
     api,
     input: $<HTMLTextAreaElement>('chatInput'),
-    getDraftIdentity: () => `${selectionGeneration}:${draftKey()}`
+    getDraftIdentity: () => `${selectionGeneration}:${draftKey()}`,
+    getDraftKey: draftKey,
+    getScope: () => ({
+      sessionId: selectedId,
+      projectId: selectedId ? sessions.find(row => row.id === selectedId)?.projectId ?? null : selectedProjectId
+    })
   });
   const agentToggle = el('button', 'btn btn-icon', '◫') as HTMLButtonElement;
   agentToggle.id = 'agentPanelToggle'; agentToggle.type = 'button'; agentToggle.hidden = true;

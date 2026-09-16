@@ -1288,6 +1288,40 @@ it('opens the saved task editor from the Goal dock and still closes it on outsid
   await settle();
 });
 
+it('keeps a selected Skill visual in the composer and sends it as metadata without slash text', async () => {
+  const { w, live } = await boot([], false);
+  (w as any).api.skillsList = vi.fn(async () => ({ ok: true, data: {
+    directory: 'C:\\skills',
+    skills: [{
+      id: 'analytics-dashboard', managedId: 'analytics-dashboard', key: 'managed:analytics-dashboard',
+      command: '/analytics-dashboard', name: 'Analytics Dashboard', description: 'Create dashboard analysis.',
+      scope: 'managed', source: 'managed', managed: true, allowImplicitInvocation: true
+    }],
+    errors: []
+  } }));
+  const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
+  input.value = '/analytics'; input.setSelectionRange(input.value.length, input.value.length);
+  input.dispatchEvent(new w.Event('input', { bubbles: true }));
+  await settle();
+  const option = w.document.querySelector<HTMLButtonElement>('[data-kind="skill"]')!;
+  expect(option.textContent).toContain('Analytics Dashboard');
+  option.click(); await settle();
+
+  const selected = w.document.getElementById('composerSelectedSkills')!;
+  expect(selected.hidden).toBe(false);
+  expect(selected.textContent).toContain('Analytics Dashboard');
+  expect(input.value).toBe('');
+  input.value = 'Create the report';
+  input.dispatchEvent(new w.Event('input', { bubbles: true }));
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+  await settle();
+
+  expect(live.sent).toHaveLength(1);
+  expect(live.sent[0]).toMatchObject({ text: 'Create the report', skillCommands: ['/analytics-dashboard'] });
+  expect(live.sent[0]!.text).not.toContain('/analytics-dashboard');
+  expect(selected.hidden).toBe(true);
+});
+
 it('retains the New Chat objective through Goal, Off and Goal toggles', async () => {
   const { w } = await boot([], false);
   const objective = w.document.getElementById('sessionObjective') as HTMLTextAreaElement;

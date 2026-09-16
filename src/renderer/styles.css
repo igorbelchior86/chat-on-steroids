@@ -1788,9 +1788,35 @@ input[readonly] {
 .composer .composer-options { grid-column: 3; grid-row: 2; }
 .composer #modelMenu { grid-column: 4; grid-row: 2; }
 .composer .send-control { grid-column: 5; grid-row: 2; }
-.composer #composerImages, .composer #composerStatus { grid-column: 1 / -1; }
+.composer #composerSelectedSkills, .composer #composerImages, .composer #composerStatus { grid-column: 1 / -1; }
+.composer #composerSelectedSkills { grid-row: 1; }
+.composer #composerImages { grid-row: 1; }
+.composer:has(#composerSelectedSkills:not([hidden])) textarea { grid-row: 2; }
 .composer:has(#composerImages:not([hidden])) textarea { grid-row: 2; }
-.composer:has(#composerImages:not([hidden])) #attachmentMenu, .composer:has(#composerImages:not([hidden])) .composer-options, .composer:has(#composerImages:not([hidden])) #modelMenu, .composer:has(#composerImages:not([hidden])) .send-control { grid-row: 3; }
+.composer:has(#composerSelectedSkills:not([hidden])) #attachmentMenu,
+.composer:has(#composerSelectedSkills:not([hidden])) .composer-options,
+.composer:has(#composerSelectedSkills:not([hidden])) #modelMenu,
+.composer:has(#composerSelectedSkills:not([hidden])) .send-control,
+.composer:has(#composerImages:not([hidden])) #attachmentMenu,
+.composer:has(#composerImages:not([hidden])) .composer-options,
+.composer:has(#composerImages:not([hidden])) #modelMenu,
+.composer:has(#composerImages:not([hidden])) .send-control { grid-row: 3; }
+.composer:has(#composerSelectedSkills:not([hidden])):has(#composerImages:not([hidden])) #composerImages { grid-row: 2; }
+.composer:has(#composerSelectedSkills:not([hidden])):has(#composerImages:not([hidden])) textarea { grid-row: 3; }
+.composer:has(#composerSelectedSkills:not([hidden])):has(#composerImages:not([hidden])) #attachmentMenu,
+.composer:has(#composerSelectedSkills:not([hidden])):has(#composerImages:not([hidden])) .composer-options,
+.composer:has(#composerSelectedSkills:not([hidden])):has(#composerImages:not([hidden])) #modelMenu,
+.composer:has(#composerSelectedSkills:not([hidden])):has(#composerImages:not([hidden])) .send-control { grid-row: 4; }
+.composer-selected-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 2px 8px; min-width: 0; }
+.composer-selected-skills[hidden] { display: none; }
+.composer-selected-skill { display: inline-flex; flex: 0 1 auto; max-width: min(280px, 100%); min-width: 0; min-height: 28px; align-items: center; gap: 6px; padding: 3px 7px 3px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--sunk); color: color-mix(in srgb, var(--ink) 82%, #8f9cff 18%); }
+.composer-selected-skill:hover { border-color: var(--edge); background: var(--hover); }
+.composer-selected-skill-icon { width: 15px; height: 15px; flex: none; color: currentColor; }
+.composer-selected-skill-title { min-width: 0; overflow: hidden; font-size: 12px; font-weight: 500; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.composer-selected-skill-remove { display: grid; place-items: center; flex: none; width: 20px; height: 20px; padding: 4px; border: 0; border-radius: 50%; background: transparent; color: var(--soft); cursor: pointer; opacity: 0; }
+.composer-selected-skill:hover .composer-selected-skill-remove, .composer-selected-skill-remove:focus-visible { opacity: 1; }
+.composer-selected-skill-remove:hover { background: var(--sunk); color: var(--ink); }
+.composer-selected-skill-remove .ico { width: 12px; height: 12px; }
 .send-button { display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; width: 36px; height: 36px; background: var(--ink); color: var(--page); cursor: pointer; }
 .send-button svg { width: 22px; height: 22px; }
 .send-button:disabled { opacity: .4; cursor: default; }
@@ -2889,15 +2915,18 @@ select option::checkmark { order: 1; margin-inline-start: auto; color: var(--ink
 .chatgpt-permission-dialog-actions .btn { min-width: 120px; justify-content: center; padding: 9px 16px; }
 .chatgpt-permission-dialog :is(button):focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
-.skill-autocomplete { position: absolute; z-index: 46; left: 10px; right: 10px; bottom: 62px; max-height: min(280px, 44vh); overflow-y: auto; padding: 6px; border: 1px solid var(--edge); border-radius: 13px; background: var(--card); box-shadow: 0 12px 34px #0005; }
+.skill-autocomplete { position: absolute; z-index: 46; left: -1px; right: -1px; bottom: calc(100% + 8px); width: auto; height: min(360px, 44vh); overflow-y: auto; padding: 8px; border: 1px solid var(--edge); border-radius: 20px; background: var(--card); box-shadow: 0 14px 40px #0006; scrollbar-gutter: stable; animation: surface-in 120ms ease-out; }
 .skill-autocomplete[hidden] { display: none; }
-.skill-autocomplete-option { display: block; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
-.skill-autocomplete-option:hover, .skill-autocomplete-option[aria-selected='true'] { background: var(--hover); }
-.skill-autocomplete-copy { display: grid; grid-template-columns: minmax(90px, auto) minmax(0, 1fr); gap: 2px 10px; align-items: baseline; min-width: 0; }
-.skill-autocomplete-copy strong { font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
-.skill-autocomplete-copy > span { min-width: 0; overflow: hidden; color: var(--ink); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.skill-autocomplete-copy small { grid-column: 1 / -1; overflow: hidden; color: var(--soft); font-size: 11px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
-.skill-autocomplete-empty { margin: 0; padding: 11px 10px; color: var(--soft); font-size: 11px; }
+.slash-menu-section + .slash-menu-section { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+.slash-menu-section-title { padding: 1px 8px 6px; color: var(--soft); font-size: 12px; font-weight: 500; line-height: 1.3; }
+.skill-autocomplete-option.slash-menu-option { display: flex; width: 100%; min-height: 36px; align-items: center; gap: 9px; padding: 6px 8px; border: 0; border-radius: 10px; background: transparent; color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.skill-autocomplete-option.slash-menu-option:hover, .skill-autocomplete-option.slash-menu-option[aria-selected='true'] { background: var(--hover); }
+.slash-menu-icon { width: 15px; height: 15px; flex: none; color: var(--soft); }
+.slash-menu-copy { display: flex; flex: 1; min-width: 0; align-items: baseline; gap: 8px; line-height: 1.35; }
+.slash-menu-copy strong { flex: none; max-width: 42%; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.slash-menu-copy small { min-width: 0; overflow: hidden; color: var(--faint); font-size: 13px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.slash-menu-meta { flex: none; max-width: 24%; overflow: hidden; color: var(--faint); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.slash-menu-empty { margin: 0; padding: 8px; color: var(--faint); font-size: 12px; line-height: 1.4; }
 
 @media (max-width: 520px) {
   .skills-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
@@ -2907,7 +2936,7 @@ select option::checkmark { order: 1; margin-inline-start: auto; color: var(--ink
   .skill-row { align-items: stretch; flex-direction: column; }
   .skill-row-actions { align-self: stretch; }
   .skill-row-actions .btn { flex: 1; justify-content: center; }
-  .skill-autocomplete { left: 6px; right: 6px; }
+  .skill-autocomplete { height: min(320px, 48vh); }
   .chatgpt-permission-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
   .chatgpt-permission-dialog-head, .chatgpt-permission-dialog-body { padding-inline: 16px; }
   .chatgpt-permission-dialog-actions { padding-inline: 16px; }

@@ -30,6 +30,7 @@ import type {
 } from '../shared/session.js';
 
 type Reply<T> = { ok: true; data: T } | { ok: false; error: string };
+type SkillsDraftScope = { sessionId: string | null; projectId: string | null };
 
 const call = <T>(channel: string, payload?: unknown): Promise<Reply<T>> =>
   ipcRenderer.invoke(channel, payload) as Promise<Reply<T>>;
@@ -78,10 +79,10 @@ export interface SessionDetail {
 }
 
 const api = {
-  skillsList: () => call<SkillLibrary>('skills:list'),
-  skillsImport: () => call<SkillLibrary | null>('skills:import'),
+  skillsList: (scope: SkillsDraftScope) => call<SkillLibrary>('skills:list', scope),
+  skillsImport: (scope: SkillsDraftScope) => call<SkillLibrary | null>('skills:import', scope),
   skillsOpenFolder: () => call<void>('skills:openFolder'),
-  skillsRemove: (id: string) => call<SkillLibrary>('skills:remove', { id }),
+  skillsRemove: (id: string, scope: SkillsDraftScope) => call<SkillLibrary>('skills:remove', { id, ...scope }),
   openLegalNotices: () => call<void>('plugins:legalNotices'),
   pluginsSnapshot: () => call<PluginSnapshot>('plugins:snapshot'),
   pluginsInstall: (request: PluginInstallRequest) => call<PluginSnapshot>('plugins:install', request),

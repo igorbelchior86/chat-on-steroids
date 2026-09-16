@@ -74,6 +74,31 @@ it('keeps the context circle in the gear group rather than an auto-placed compos
   expect(document.getElementById('contextMeterInfo')!.parentElement?.id).toBe('contextMeter');
 });
 
+it('gives Skills one fixed-height native-style menu above the composer', () => {
+  const autocomplete = rule('.skill-autocomplete');
+  expect(autocomplete).toContain('left: -1px');
+  expect(autocomplete).toContain('right: -1px');
+  expect(autocomplete).toContain('bottom: calc(100% + 8px)');
+  expect(autocomplete).toContain('width: auto');
+  expect(autocomplete).toContain('height: min(360px, 44vh)');
+  expect(autocomplete).toContain('overflow-y: auto');
+  expect(autocomplete).toContain('border-radius: 20px');
+  expect(rule('.skill-autocomplete-option.slash-menu-option')).toContain('display: flex');
+  expect(rule('.slash-menu-copy')).toContain('align-items: baseline');
+  expect(rule('.slash-menu-copy small')).toContain('white-space: nowrap');
+});
+
+it('renders selected Skills as compact wrapping chips above authored text', () => {
+  expect(document.getElementById('composerSelectedSkills')).not.toBeNull();
+  expect(rule('.composer-selected-skills')).toContain('display: flex');
+  expect(rule('.composer-selected-skills')).toContain('flex-wrap: wrap');
+  expect(rule('.composer-selected-skill')).toContain('display: inline-flex');
+  expect(rule('.composer-selected-skill')).toContain('border-radius: 999px');
+  expect(rule('.composer-selected-skill')).toContain('max-width: min(280px, 100%)');
+  expect(rule('.composer-selected-skill-title')).toContain('text-overflow: ellipsis');
+  expect(rule('.composer:has(#composerSelectedSkills:not([hidden])) textarea')).toContain('grid-row: 2');
+});
+
 it('does not expose a periodic Astra continuation outside session_finish', () => {
   expect(document.getElementById('goalImpulseMinutes')).toBeNull();
   expect(chatSource).not.toContain("number('goalImpulseMinutes'");

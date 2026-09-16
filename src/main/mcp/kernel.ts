@@ -40,7 +40,7 @@ import {
   type Resolved
 } from '../sandbox.js';
 import { currentWorkspace, learnWorkspace, setCurrentWorkspace } from '../workspace.js';
-import { skillsDirectory } from '../skills.js';
+import { isReadOnlySkillRoot, skillsDirectory } from '../skills.js';
 import { getSessionProject } from '../projects.js';
 import { ExecError } from '../exec.js';
 import { ComputerError } from '../computer/index.js';
@@ -1014,7 +1014,10 @@ export async function resolveIn(
   // `/elsewhere`, and nothing downstream can tell it apart from a path that was always that.
   const workspace = await validatedWorkspace();
   const base = options.base !== undefined ? options.base : (workspace?.virtual ?? null);
-  const resolved = await resolvePath(roots, requested, {
+  const resolutionRoots = !base && !isAbsoluteVirtualPath(requested) && !isNativeWindowsPath(requested)
+    ? roots.filter(root => root.name !== 'skills' && !isReadOnlySkillRoot(root.name))
+    : roots;
+  const resolved = await resolvePath(resolutionRoots, requested, {
     ...(options.allowMissing === undefined ? {} : { allowMissing: options.allowMissing }),
     base
   });
@@ -1022,7 +1025,8 @@ export async function resolveIn(
   // decide where the next loose resolution points. See workspace.ts.
   // Loading shared skill instructions must not move the chat away from its project.
   const skillDirectory = skillsDirectory();
-  const isSkill = resolved.root.name === 'skills' || (skillDirectory !== null && isContained(skillDirectory, resolved.real));
+  const isSkill = resolved.root.name === 'skills' || isReadOnlySkillRoot(resolved.root.name) ||
+    (skillDirectory !== null && isContained(skillDirectory, resolved.real));
   if (!isSkill && (isAbsoluteVirtualPath(requested) || isNativeWindowsPath(requested))) await learnWorkspace(resolved);
   return resolved;
 }
